@@ -1,0 +1,15 @@
+{
+  "name": "video-streaming-app-backend",
+  "version": "1.0.0",
+  "description": "This is video streaming app backend",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev":"nodemon src/index.js"
+  },
+  "author": "Pankaj Kumar",
+  "license": "ISC",
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
