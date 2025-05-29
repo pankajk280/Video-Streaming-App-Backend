@@ -22,3 +22,9 @@ app.use(express.static("public"));
 //for enabling access to browser's cookie
 app.use(cookieParser());
 
+//router config
+import  {userRouter}  from "./routes/user.routes.js";
+
+app.use("/api/v1/users", userRouter);
+
+export {app};
