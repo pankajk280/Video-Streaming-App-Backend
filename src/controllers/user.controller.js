@@ -1,21 +1,37 @@
 import {asyncHandler} from "../utils/asyncHandler.js";
 import {ApiError} from "../utils/ApiError.js";
-import { user } from "../models/user.model.js";
+import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
+
+const generateAccessAndRefreshToken = async(userId) => {
+    try {
+        const user = await User.findById(userId);
+        if(!user){
+            throw new ApiError(400,"User does not exist");
+        }
+        const accessToken = user.generateAcessToken();
+        const refreshToken = user.generateRefreshToken();
+    
+        user.refreshToken = refreshToken;
+        
+        await user.save({validateBeforeSave : false});
+        return {accessToken, refreshToken};
+    } catch (error) {
+        throw new ApiError(400,"Error occured while generating access and refrsh tokens");
+    }
+};
+
 const registerUser = asyncHandler(async(req,res)=>{
-    // res.status(200).json({
-    //     message:"ok"
-    // });
-    const {userName,email,fullname,password} = req.body;
+    const {email,fullname,password} = req.body;
 
     //apply validations
-    if([userName,email,fullname,password].some((x=>x.trim()===''))){
+    if([email,fullname,password].some((x=>x.trim()===''))){
         throw new ApiError(400,"Fields are mandatory");
     }
 
-    const existingUser = await user.findOne({
+    const existingUser = await User.findOne({
         $or : [{userName},{email}]
     });
 
@@ -40,16 +56,15 @@ const registerUser = asyncHandler(async(req,res)=>{
     }
 
     //store in database
-    const userCreated = await user.create({
+    const userCreated = await User.create({
         fullname,
         avatar: avatar.url,
         coverImage: coverImage?.url || "",
-        userName,
         email,
         password
     });
 
-    const createdUser = await user.findById(userCreated._id).select(
+    const createdUser = await User.findById(userCreated._id).select(
         "-password -refreshToken"
     );
 
@@ -63,4 +78,64 @@ const registerUser = asyncHandler(async(req,res)=>{
 
 });
 
-export {registerUser};
+const loginUser = asyncHandler(async(req,res)=>{
+    const {email,password} = req.body;
+    if(!email || !password){
+        throw new ApiError(400,"All fields are mandatory");
+    }
+
+    const user = await User.findOne({email}); //check if email exists in db
+    if(!user){
+        throw new ApiError(404,"User does not exist")
+    }
+    
+    const isPasswordCorrect =  await user.isPasswordCorrect(password); //use user as this contains isPasswordCorrect fn
+    if(!isPasswordCorrect){
+        throw new ApiError(401,"Invalid credentials");
+    }
+
+    //generate access and refresh tokens
+
+    const {accessToken, refreshToken} = await generateAccessAndRefreshToken(user._id);
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
+
+    //set access and refrsh tokens in cookies that can only be changed from server side that's why options is used
+    
+    const options={
+        httpOnly: true,
+        secure: true
+    }
+
+    return res.status(200)
+              .cookie("accessToken",accessToken,options)
+              .cookie("refreshToken",refreshToken,options)
+              .json(
+                 new ApiResponse(
+                    200, 
+                    {
+                        user: loggedInUser, accessToken, refreshToken
+                    },
+                    "User logged In Successfully"
+                )
+              );
+});
+
+const logoutUser = asyncHandler(async(req,res)=>{
+    await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $unset :{ refreshToken : 1}
+        },
+        {new :1 }
+    );
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res.status(200).clearCookie("accessToken",options).clearCookie("refreshToken",options).json(new ApiResponse(200, {}, "User logged Out Successfully"));
+            
+});
+
+export {loginUser,registerUser,logoutUser};
